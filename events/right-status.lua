@@ -2,6 +2,7 @@ local wezterm = require('wezterm')
 local umath = require('utils.math')
 local Cells = require('utils.cells')
 local OptsValidator = require('utils.opts-validator')
+local system_stats = require('utils.system-stats')
 
 ---@alias Event.RightStatusOptions { date_format?: string }
 
@@ -13,7 +14,7 @@ EVENT_OPTS.schema = {
    {
       name = 'date_format',
       type = 'string',
-      default = '%a %H:%M:%S',
+      default = '%a %d %b %H:%M',
    },
 }
 EVENT_OPTS.validator = OptsValidator:new(EVENT_OPTS.schema)
@@ -25,6 +26,8 @@ local M = {}
 
 local ICON_SEPARATOR = nf.oct_dash
 local ICON_DATE = nf.fa_calendar
+local ICON_CPU = nf.md_chip
+local ICON_MEMORY = nf.md_memory
 
 ---@type string[]
 local discharging_icons = {
@@ -57,6 +60,8 @@ local charging_icons = {
 -- stylua: ignore
 local colors = {
    date      = { fg = '#fab387', bg = 'rgba(0, 0, 0, 0.4)' },
+   cpu       = { fg = '#a6e3a1', bg = 'rgba(0, 0, 0, 0.4)' },
+   memory    = { fg = '#89b4fa', bg = 'rgba(0, 0, 0, 0.4)' },
    battery   = { fg = '#f9e2af', bg = 'rgba(0, 0, 0, 0.4)' },
    separator = { fg = '#74c7ec', bg = 'rgba(0, 0, 0, 0.4)' }
 }
@@ -66,7 +71,13 @@ local cells = Cells:new()
 cells
    :add_segment('date_icon', ICON_DATE .. '  ', colors.date, attr(attr.intensity('Bold')))
    :add_segment('date_text', '', colors.date, attr(attr.intensity('Bold')))
-   :add_segment('separator', ' ' .. ICON_SEPARATOR .. '  ', colors.separator)
+   :add_segment('separator1', ' ' .. ICON_SEPARATOR .. '  ', colors.separator)
+   :add_segment('cpu_icon', ICON_CPU .. ' ', colors.cpu)
+   :add_segment('cpu_text', '', colors.cpu, attr(attr.intensity('Bold')))
+   :add_segment('separator2', ' ' .. ICON_SEPARATOR .. '  ', colors.separator)
+   :add_segment('memory_icon', ICON_MEMORY .. ' ', colors.memory)
+   :add_segment('memory_text', '', colors.memory, attr(attr.intensity('Bold')))
+   :add_segment('separator3', ' ' .. ICON_SEPARATOR .. '  ', colors.separator)
    :add_segment('battery_icon', '', colors.battery)
    :add_segment('battery_text', '', colors.battery, attr(attr.intensity('Bold')))
 
@@ -101,17 +112,29 @@ M.setup = function(opts)
 
    wezterm.on('update-right-status', function(window, _pane)
       local battery_text, battery_icon = battery_info()
+      local cpu_usage = system_stats.get_cpu_usage()
+      local memory_usage = system_stats.get_memory_usage()
 
       cells
          :update_segment_text('date_text', wezterm.strftime(valid_opts.date_format))
+         :update_segment_text('cpu_text', cpu_usage)
+         :update_segment_text('memory_text', memory_usage)
          :update_segment_text('battery_icon', battery_icon)
          :update_segment_text('battery_text', battery_text)
 
-      window:set_right_status(
-         wezterm.format(
-            cells:render({ 'date_icon', 'date_text', 'separator', 'battery_icon', 'battery_text' })
-         )
-      )
+      window:set_right_status(wezterm.format(cells:render({
+         'date_icon',
+         'date_text',
+         'separator1',
+         'cpu_icon',
+         'cpu_text',
+         'separator2',
+         'memory_icon',
+         'memory_text',
+         'separator3',
+         'battery_icon',
+         'battery_text',
+      })))
    end)
 end
 
