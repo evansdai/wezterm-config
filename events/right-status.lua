@@ -71,13 +71,11 @@ local cells = Cells:new()
 cells
    :add_segment('date_icon', ICON_DATE .. '  ', colors.date, attr(attr.intensity('Bold')))
    :add_segment('date_text', '', colors.date, attr(attr.intensity('Bold')))
-   :add_segment('separator1', ' ' .. ICON_SEPARATOR .. '  ', colors.separator)
-   :add_segment('cpu_icon', ICON_CPU .. ' ', colors.cpu)
+   :add_segment('cpu_icon', '  ' .. ICON_CPU .. ' ', colors.cpu)
    :add_segment('cpu_text', '', colors.cpu, attr(attr.intensity('Bold')))
-   :add_segment('separator2', ' ' .. ICON_SEPARATOR .. '  ', colors.separator)
-   :add_segment('memory_icon', ICON_MEMORY .. ' ', colors.memory)
+   :add_segment('memory_icon', '  ' .. ICON_MEMORY .. ' ', colors.memory)
    :add_segment('memory_text', '', colors.memory, attr(attr.intensity('Bold')))
-   :add_segment('separator3', ' ' .. ICON_SEPARATOR .. '  ', colors.separator)
+   :add_segment('spacer', '  ', colors.memory)
    :add_segment('battery_icon', '', colors.battery)
    :add_segment('battery_text', '', colors.battery, attr(attr.intensity('Bold')))
 
@@ -125,13 +123,11 @@ M.setup = function(opts)
       window:set_right_status(wezterm.format(cells:render({
          'date_icon',
          'date_text',
-         'separator1',
          'cpu_icon',
          'cpu_text',
-         'separator2',
          'memory_icon',
          'memory_text',
-         'separator3',
+         'spacer',
          'battery_icon',
          'battery_text',
       })))
