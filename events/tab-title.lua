@@ -47,6 +47,7 @@ local GLYPH_CIRCLE = nf.fa_circle --[[  ]]
 local GLYPH_ADMIN = nf.md_shield_half_full --[[ 󰞀 ]]
 local GLYPH_LINUX = nf.cod_terminal_linux --[[  ]]
 local GLYPH_DEBUG = nf.fa_bug --[[  ]]
+local GLYPH_ZOOM = nf.fa_search_plus --[[  ]]
 -- local GLYPH_SEARCH = nf.fa_search --[[  ]]
 local GLYPH_SEARCH = '🔭'
 
@@ -82,12 +83,30 @@ local TITLE_INSET = {
 }
 
 local RENDER_VARIANTS = {
+   -- Base: no icons
    { 'scircle_left', 'title', 'padding', 'scircle_right' },
-   { 'scircle_left', 'title', 'unseen_output', 'padding', 'scircle_right' },
+   -- Zoom only
+   { 'scircle_left', 'zoom', 'title', 'padding', 'scircle_right' },
+   -- Unseen only
+   { 'scircle_left', 'unseen_output', 'title', 'padding', 'scircle_right' },
+   -- Zoom + unseen
+   { 'scircle_left', 'zoom', 'unseen_output', 'title', 'padding', 'scircle_right' },
+   -- Admin only
    { 'scircle_left', 'admin', 'title', 'padding', 'scircle_right' },
-   { 'scircle_left', 'admin', 'title', 'unseen_output', 'padding', 'scircle_right' },
+   -- Admin + zoom
+   { 'scircle_left', 'zoom', 'admin', 'title', 'padding', 'scircle_right' },
+   -- Admin + unseen
+   { 'scircle_left', 'unseen_output', 'admin', 'title', 'padding', 'scircle_right' },
+   -- Admin + zoom + unseen
+   { 'scircle_left', 'zoom', 'unseen_output', 'admin', 'title', 'padding', 'scircle_right' },
+   -- WSL only
    { 'scircle_left', 'wsl', 'title', 'padding', 'scircle_right' },
-   { 'scircle_left', 'wsl', 'title', 'unseen_output', 'padding', 'scircle_right' },
+   -- WSL + zoom
+   { 'scircle_left', 'zoom', 'wsl', 'title', 'padding', 'scircle_right' },
+   -- WSL + unseen
+   { 'scircle_left', 'unseen_output', 'wsl', 'title', 'padding', 'scircle_right' },
+   -- WSL + zoom + unseen
+   { 'scircle_left', 'zoom', 'unseen_output', 'wsl', 'title', 'padding', 'scircle_right' },
 }
 
 
@@ -183,6 +202,7 @@ end
 ---@field locked_title string
 ---@field is_wsl boolean
 ---@field is_admin boolean
+---@field is_zoomed boolean
 ---@field unseen_output boolean
 ---@field unseen_output_count number
 ---@field is_active boolean
@@ -197,6 +217,7 @@ function Tab:new()
       locked_title = '',
       is_wsl = false,
       is_admin = false,
+      is_zoomed = false,
       unseen_output = false,
       unseen_output_count = 0,
    }
@@ -213,6 +234,7 @@ function Tab:set_info(event_opts, tab, max_width)
    self.is_admin = (
       tab.active_pane.title:match('^Administrator: ') or tab.active_pane.title:match('(Admin)')
    ) ~= nil
+   self.is_zoomed = tab.active_pane.is_zoomed
    self.unseen_output = false
    self.unseen_output_count = 0
 
@@ -222,6 +244,9 @@ function Tab:set_info(event_opts, tab, max_width)
 
    local inset = (self.is_admin or self.is_wsl) and TITLE_INSET.ICON or TITLE_INSET.DEFAULT
    if self.unseen_output then
+      inset = inset + 2
+   end
+   if self.is_zoomed then
       inset = inset + 2
    end
 
@@ -236,6 +261,7 @@ function Tab:create_cells()
    local attr = self.cells.attr
    self.cells
       :add_segment('scircle_left', GLYPH_SCIRCLE_LEFT)
+      :add_segment('zoom', ' ' .. GLYPH_ZOOM)
       :add_segment('admin', ' ' .. GLYPH_ADMIN)
       :add_segment('wsl', ' ' .. GLYPH_LINUX)
       :add_segment('title', ' ', nil, attr(attr.intensity('Bold')))
@@ -278,6 +304,7 @@ function Tab:update_cells(event_opts, is_active, hover)
 
    self.cells
       :update_segment_colors('scircle_left', colors['scircle_' .. tab_state])
+      :update_segment_colors('zoom', colors['unseen_output_' .. tab_state])
       :update_segment_colors('admin', colors['text_' .. tab_state])
       :update_segment_colors('wsl', colors['text_' .. tab_state])
       :update_segment_colors('title', colors['text_' .. tab_state])
@@ -288,14 +315,24 @@ end
 
 ---@return FormatItem[] (ref: https://wezfurlong.org/wezterm/config/lua/wezterm/format.html)
 function Tab:render()
-   local variant_idx = self.is_admin and 3 or 1
-   if self.is_wsl then
-      variant_idx = 5
+   -- Calculate variant index based on icon states
+   -- Base: 1, +1 if zoomed, +2 if unseen_output
+   -- Admin base: 5, WSL base: 9
+   local base_idx = 1
+   if self.is_admin then
+      base_idx = 5
+   elseif self.is_wsl then
+      base_idx = 9
    end
 
-   if self.unseen_output then
+   local variant_idx = base_idx
+   if self.is_zoomed then
       variant_idx = variant_idx + 1
    end
+   if self.unseen_output then
+      variant_idx = variant_idx + 2
+   end
+
    return self.cells:render(RENDER_VARIANTS[variant_idx])
 end
 
