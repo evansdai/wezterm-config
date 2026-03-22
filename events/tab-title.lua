@@ -394,6 +394,7 @@ M.setup = function(opts)
          tab_list[tab.tab_id] = Tab:new()
          tab_list[tab.tab_id]:set_info(valid_opts, tab, max_width)
          tab_list[tab.tab_id]:create_cells()
+         tab_list[tab.tab_id]:update_cells(valid_opts, tab.is_active, hover)
          return tab_list[tab.tab_id]:render()
       end
 

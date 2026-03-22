@@ -196,7 +196,7 @@ function Cells:render(ids)
    for _, id in ipairs(ids) do
       self:_check_segment(id)
 
-      for _, item in pairs(self.segments[id].items) do
+      for _, item in ipairs(self.segments[id].items) do
          table.insert(cells, item)
       end
    end
@@ -210,7 +210,7 @@ end
 function Cells:render_all()
    local cells = {}
    for _, segment in pairs(self.segments) do
-      for _, item in pairs(segment.items) do
+      for _, item in ipairs(segment.items) do
          table.insert(cells, item)
       end
    end
