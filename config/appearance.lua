@@ -56,11 +56,13 @@ return {
       -- font_size = fonts.font_size,
    },
 
+   inactive_pane_hsb = { saturation = 1.0, brightness = 1.0 },
+
    visual_bell = {
       fade_in_function = 'EaseIn',
-      fade_in_duration_ms = 250,
+      fade_in_duration_ms = 150,
       fade_out_function = 'EaseOut',
-      fade_out_duration_ms = 250,
-      target = 'CursorColor',
+      fade_out_duration_ms = 300,
+      target = 'BackgroundColor',
    },
 }
