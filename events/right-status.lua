@@ -113,66 +113,75 @@ M.setup = function(opts)
    end
 
    wezterm.on('update-right-status', function(window, _)
-      local battery_text, battery_icon = battery_info()
-      local cpu_usage = system_stats.get_cpu_usage()
-      local memory_usage = system_stats.get_memory_usage()
-      -- Just do not show swap
-      -- local swap_info = system_stats.get_swap_usage()
+      local success, result = pcall(function()
+         local battery_text, battery_icon = battery_info()
+         local cpu_usage = system_stats.get_cpu_usage()
+         local memory_usage = system_stats.get_memory_usage()
+         -- Just do not show swap
+         -- local swap_info = system_stats.get_swap_usage()
 
-      local memory_color = colors.memory
-      local swap_color = colors.memory
-      local show_swap = false
+         local memory_color = colors.memory
+         local swap_color = colors.memory
+         local show_swap = false
+         local swap_info = nil
 
-      if swap_info then
-         show_swap = true
-         if swap_info.status == 'critical' then
-            memory_color = colors.memory_crit
-            swap_color = colors.memory_crit
-         elseif swap_info.status == 'warning' then
-            memory_color = colors.memory_warn
-            swap_color = colors.memory_warn
-         end
-      end
+         -- Uncomment to enable swap display
+         -- swap_info = system_stats.get_swap_usage()
+         -- if swap_info then
+         --    show_swap = true
+         --    if swap_info.status == 'critical' then
+         --       memory_color = colors.memory_crit
+         --       swap_color = colors.memory_crit
+         --    elseif swap_info.status == 'warning' then
+         --       memory_color = colors.memory_warn
+         --       swap_color = colors.memory_warn
+         --    end
+         -- end
 
-      cells
-         :update_segment_text('date_text', wezterm.strftime(valid_opts.date_format))
-         :update_segment_text('cpu_text', cpu_usage)
-         :update_segment_text('memory_text', memory_usage)
-         :update_segment_colors('memory_icon', memory_color)
-         :update_segment_colors('memory_text', memory_color)
-
-      if show_swap and swap_info then
          cells
-            :update_segment_text('swap_text', swap_info.text)
-            :update_segment_colors('swap_icon', swap_color)
-            :update_segment_colors('swap_text', swap_color)
-      else
-         cells:update_segment_text('swap_text', '')
+            :update_segment_text('date_text', wezterm.strftime(valid_opts.date_format))
+            :update_segment_text('cpu_text', cpu_usage)
+            :update_segment_text('memory_text', memory_usage)
+            :update_segment_colors('memory_icon', memory_color)
+            :update_segment_colors('memory_text', memory_color)
+
+         if show_swap and swap_info then
+            cells
+               :update_segment_text('swap_text', swap_info.text)
+               :update_segment_colors('swap_icon', swap_color)
+               :update_segment_colors('swap_text', swap_color)
+         else
+            cells:update_segment_text('swap_text', '')
+         end
+
+         cells
+            :update_segment_text('battery_icon', battery_icon)
+            :update_segment_text('battery_text', battery_text)
+
+         local segments = {
+            'date_icon',
+            'date_text',
+            'cpu_icon',
+            'cpu_text',
+            'memory_icon',
+            'memory_text',
+         }
+
+         if show_swap then
+            table.insert(segments, 'swap_icon')
+            table.insert(segments, 'swap_text')
+         end
+
+         table.insert(segments, 'spacer')
+         table.insert(segments, 'battery_icon')
+         table.insert(segments, 'battery_text')
+
+         window:set_right_status(wezterm.format(cells:render(segments)))
+      end)
+
+      if not success then
+         wezterm.log_error('right-status error: ' .. tostring(result))
       end
-
-      cells
-         :update_segment_text('battery_icon', battery_icon)
-         :update_segment_text('battery_text', battery_text)
-
-      local segments = {
-         'date_icon',
-         'date_text',
-         'cpu_icon',
-         'cpu_text',
-         'memory_icon',
-         'memory_text',
-      }
-
-      if show_swap then
-         table.insert(segments, 'swap_icon')
-         table.insert(segments, 'swap_text')
-      end
-
-      table.insert(segments, 'spacer')
-      table.insert(segments, 'battery_icon')
-      table.insert(segments, 'battery_text')
-
-      window:set_right_status(wezterm.format(cells:render(segments)))
    end)
 end
 
