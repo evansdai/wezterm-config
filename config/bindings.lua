@@ -28,30 +28,38 @@ local keys = {
    { key = 'F11', mods = 'NONE',    action = act.ToggleFullScreen },
    { key = 'F12', mods = 'NONE',    action = act.ShowDebugOverlay },
    { key = 'f',   mods = mod.SUPER, action = act.Search({ CaseInSensitiveString = '' }) },
-   {
-      key = 'u',
-      mods = mod.SUPER_REV,
-      action = wezterm.action.QuickSelectArgs({
-         label = 'open url',
-         patterns = {
-            '\\((https?://\\S+)\\)',
-            '\\[(https?://\\S+)\\]',
-            '\\{(https?://\\S+)\\}',
-            '<(https?://\\S+)>',
-            '\\bhttps?://\\S+[)/a-zA-Z0-9-]+'
-         },
-         action = wezterm.action_callback(function(window, pane)
-            local url = window:get_selection_text_for_pane(pane)
-            wezterm.log_info('opening: ' .. url)
-            wezterm.open_with(url)
-         end),
-      }),
-   },
+    {
+       key = 'u',
+       mods = mod.SUPER_REV,
+       action = wezterm.action.QuickSelectArgs({
+          label = 'open url',
+          patterns = {
+             '\\((https?://\\S+)\\)',
+             '\\[(https?://\\S+)\\]',
+             '\\{(https?://\\S+)\\}',
+             '<(https?://\\S+)>',
+             '\\bhttps?://\\S+[/)/a-zA-Z0-9-]+'
+          },
+          action = wezterm.action_callback(function(window, pane)
+             local url = window:get_selection_text_for_pane(pane)
+             wezterm.log_info('opening: ' .. url)
+             wezterm.open_with(url)
+          end),
+       }),
+    },
+    {
+       key = 'd',
+       mods = 'SUPER|SHIFT',
+       action = wezterm.action_callback(function(_window, pane)
+          local datestamp = os.date('%Y%m%d')
+          pane:send_text(datestamp)
+       end),
+    },
 
-   -- cursor movement --
-   { key = 'LeftArrow',  mods = mod.SUPER,     action = act.SendString '\u{1b}OH' },
-   { key = 'RightArrow', mods = mod.SUPER,     action = act.SendString '\u{1b}OF' },
-   { key = 'Backspace',  mods = mod.SUPER,     action = act.SendString '\u{15}' },
+    -- cursor movement --
+    { key = 'LeftArrow',  mods = mod.SUPER,     action = act.SendString '\u{1b}OH' },
+    { key = 'RightArrow', mods = mod.SUPER,     action = act.SendString '\u{1b}OF' },
+    { key = 'Backspace',  mods = mod.SUPER,     action = act.SendString '\u{15}' },
 
    -- copy/paste --
    { key = 'c',          mods = 'CTRL|SHIFT',  action = act.CopyTo('Clipboard') },
