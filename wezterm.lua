@@ -11,6 +11,7 @@ require('events.right-status').setup({ date_format = '%a %d %b %H:%M' })
 require('events.tab-title').setup({ hide_active_tab_unseen = false, unseen_icon = 'numbered_box' })
 require('events.new-tab-button').setup()
 require('events.gui-startup').setup()
+require('events.pane-focus').setup()
 
 return Config:init()
    :append(require('config.appearance'))
