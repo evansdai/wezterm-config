@@ -12,6 +12,7 @@ require('events.tab-title').setup({ hide_active_tab_unseen = false, unseen_icon 
 require('events.new-tab-button').setup()
 require('events.gui-startup').setup()
 require('events.pane-focus').setup()
+require('events.session_tracker_poc')  -- Session tracker POC (auto-registers handlers)
 
 return Config:init()
    :append(require('config.appearance'))

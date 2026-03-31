@@ -47,6 +47,8 @@ local GLYPH_CIRCLE = nf.fa_circle --[[  ]]
 local GLYPH_ADMIN = nf.md_shield_half_full --[[ 󰞀 ]]
 local GLYPH_LINUX = nf.cod_terminal_linux --[[  ]]
 local GLYPH_DEBUG = nf.fa_bug --[[  ]]
+local GLYPH_SESSION_RUNNING = nf.cod_debug_continue_small
+local GLYPH_SESSION_WAITING = nf.md_message_badge_outline
 local GLYPH_ZOOM = nf.fa_search_plus --[[  ]]
 -- local GLYPH_SEARCH = nf.fa_search --[[  ]]
 local GLYPH_SEARCH = '🔭'
@@ -84,29 +86,29 @@ local TITLE_INSET = {
 
 local RENDER_VARIANTS = {
    -- Base: no icons
-   { 'scircle_left', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'title', 'padding', 'scircle_right' },
    -- Zoom only
-   { 'scircle_left', 'zoom', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'zoom', 'title', 'padding', 'scircle_right' },
    -- Unseen only
-   { 'scircle_left', 'unseen_output', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'unseen_output', 'title', 'padding', 'scircle_right' },
    -- Zoom + unseen
-   { 'scircle_left', 'zoom', 'unseen_output', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'zoom', 'unseen_output', 'title', 'padding', 'scircle_right' },
    -- Admin only
-   { 'scircle_left', 'admin', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'admin', 'title', 'padding', 'scircle_right' },
    -- Admin + zoom
-   { 'scircle_left', 'zoom', 'admin', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'zoom', 'admin', 'title', 'padding', 'scircle_right' },
    -- Admin + unseen
-   { 'scircle_left', 'unseen_output', 'admin', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'unseen_output', 'admin', 'title', 'padding', 'scircle_right' },
    -- Admin + zoom + unseen
-   { 'scircle_left', 'zoom', 'unseen_output', 'admin', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'zoom', 'unseen_output', 'admin', 'title', 'padding', 'scircle_right' },
    -- WSL only
-   { 'scircle_left', 'wsl', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'wsl', 'title', 'padding', 'scircle_right' },
    -- WSL + zoom
-   { 'scircle_left', 'zoom', 'wsl', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'zoom', 'wsl', 'title', 'padding', 'scircle_right' },
    -- WSL + unseen
-   { 'scircle_left', 'unseen_output', 'wsl', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'unseen_output', 'wsl', 'title', 'padding', 'scircle_right' },
    -- WSL + zoom + unseen
-   { 'scircle_left', 'zoom', 'unseen_output', 'wsl', 'title', 'padding', 'scircle_right' },
+   { 'scircle_left', 'session', 'zoom', 'unseen_output', 'wsl', 'title', 'padding', 'scircle_right' },
 }
 
 
@@ -120,6 +122,14 @@ local colors = {
    unseen_output_default = { bg = '#45475A', fg = '#FFA066' },
    unseen_output_hover   = { bg = '#5D87A3', fg = '#FFA066' },
    unseen_output_active  = { bg = '#74c7ec', fg = '#FFA066' },
+
+   session_running_default = { bg = '#45475A', fg = '#A6E3A1' },
+   session_running_hover   = { bg = '#5D87A3', fg = '#A6E3A1' },
+   session_running_active  = { bg = '#74c7ec', fg = '#A6E3A1' },
+
+   session_waiting_default = { bg = '#45475A', fg = '#FAB387' },
+   session_waiting_hover   = { bg = '#5D87A3', fg = '#FAB387' },
+   session_waiting_active  = { bg = '#74c7ec', fg = '#11111B' },
 
    scircle_default       = { bg = 'rgba(0, 0, 0, 0.4)', fg = '#45475A' },
    scircle_hover         = { bg = 'rgba(0, 0, 0, 0.4)', fg = '#5D87A3' },
@@ -160,13 +170,9 @@ local function create_title(process_name, base_title, max_width, inset)
       inset = inset - 2
    end
 
-   if title:len() > max_width - inset then
-      local diff = title:len() - max_width + inset
-      title = title:sub(1, title:len() - diff)
-   else
-      local padding = max_width - title:len() - inset
-      title = title .. string.rep(' ', padding)
-   end
+   local available_width = max_width - inset
+   title = wezterm.truncate_right(title, available_width)
+   title = wezterm.pad_right(title, available_width)
 
    return title
 end
@@ -205,6 +211,7 @@ end
 ---@field is_zoomed boolean
 ---@field unseen_output boolean
 ---@field unseen_output_count number
+---@field session_state string|nil
 ---@field is_active boolean
 local Tab = {}
 Tab.__index = Tab
@@ -220,6 +227,7 @@ function Tab:new()
       is_zoomed = false,
       unseen_output = false,
       unseen_output_count = 0,
+      session_state = nil,
    }
    return setmetatable(tab, self)
 end
@@ -229,13 +237,21 @@ end
 ---@param max_width number
 function Tab:set_info(event_opts, tab, max_width)
    local process_name = clean_process_name(tab.active_pane.foreground_process_name)
+   local session_tracker = require('events.session_tracker_poc')
 
    self.is_wsl = process_name:match('^wsl') ~= nil
    self.is_admin = (
       tab.active_pane.title:match('^Administrator: ') or tab.active_pane.title:match('(Admin)')
    ) ~= nil
    self.is_zoomed = tab.active_pane.is_zoomed
-   self.unseen_output = false
+
+   local ok1, session_state, session_counts = pcall(function()
+      return session_tracker.get_tab_session_state(tab.tab_id)
+   end)
+   self.session_state = ok1 and session_state or nil
+   self.session_counts = ok1 and session_counts or nil
+
+    self.unseen_output = false
    self.unseen_output_count = 0
 
    if not event_opts.hide_active_tab_unseen or not tab.is_active then
@@ -243,6 +259,18 @@ function Tab:set_info(event_opts, tab, max_width)
    end
 
    local inset = (self.is_admin or self.is_wsl) and TITLE_INSET.ICON or TITLE_INSET.DEFAULT
+   if self.session_state then
+      -- Base 2 chars for icon, plus space
+      inset = inset + 2
+      -- Add extra space for count display (e.g., "▶2/3" could be up to 5 chars)
+      if self.session_counts then
+         local total_active = self.session_counts.running + self.session_counts.waiting
+         if total_active > 1 or self.session_counts.completed > 0 then
+            -- Account for numbers like "2/3" or "3"
+            inset = inset + 3
+         end
+      end
+   end
    if self.unseen_output then
       inset = inset + 2
    end
@@ -261,6 +289,7 @@ function Tab:create_cells()
    local attr = self.cells.attr
    self.cells
       :add_segment('scircle_left', GLYPH_SCIRCLE_LEFT)
+      :add_segment('session', ' ')
       :add_segment('zoom', ' ' .. GLYPH_ZOOM)
       :add_segment('admin', ' ' .. GLYPH_ADMIN)
       :add_segment('wsl', ' ' .. GLYPH_LINUX)
@@ -289,6 +318,29 @@ function Tab:update_cells(event_opts, is_active, hover)
 
    self.cells:update_segment_text('title', ' ' .. self.title)
 
+   -- Build session indicator with counts
+   local session_text = ' '
+   if self.session_state then
+      local glyph = self.session_state == 'running' and GLYPH_SESSION_RUNNING or GLYPH_SESSION_WAITING
+      local counts = self.session_counts
+      if counts then
+         local total_active = counts.running + counts.waiting
+         if total_active > 1 or counts.completed > 0 then
+            -- Show counts: active/completed or just active count if multiple
+            if counts.completed > 0 then
+               session_text = string.format(' %s%d/%d', glyph, total_active, counts.completed)
+            else
+               session_text = string.format(' %s%d', glyph, total_active)
+            end
+         else
+            session_text = ' ' .. glyph
+         end
+      else
+         session_text = ' ' .. glyph
+      end
+   end
+   self.cells:update_segment_text('session', session_text)
+
    if event_opts.unseen_icon == 'numbered_box' and self.unseen_output then
       self.cells:update_segment_text(
          'unseen_output',
@@ -304,6 +356,7 @@ function Tab:update_cells(event_opts, is_active, hover)
 
    self.cells
       :update_segment_colors('scircle_left', colors['scircle_' .. tab_state])
+      :update_segment_colors('session', colors['session_' .. (self.session_state or 'running') .. '_' .. tab_state] or colors['text_' .. tab_state])
       :update_segment_colors('zoom', colors['unseen_output_' .. tab_state])
       :update_segment_colors('admin', colors['text_' .. tab_state])
       :update_segment_colors('wsl', colors['text_' .. tab_state])
