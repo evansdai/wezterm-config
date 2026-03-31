@@ -140,17 +140,20 @@ local function set_agent_state(pane, value)
 
    if normalized == 'waiting' or normalized == 'idle' or normalized == 'needs_input' or normalized == 'completed' then
       current.agent_state = 'waiting'
+      current.agent_state_from_osc = true
    elseif normalized == 'running' or normalized == 'busy' or normalized == 'working' then
       current.agent_state = 'running'
+      current.agent_state_from_osc = true
    elseif normalized == '' or normalized == 'clear' then
       current.agent_state = nil
+      current.agent_state_from_osc = false
    else
       log(string.format('pane %d: ignoring unknown session_state=%s', pane_id, normalized))
       return
    end
 
    pane_state[pane_id] = current
-   log(string.format('pane %d: session_state=%s', pane_id, current.agent_state or 'cleared'))
+   log(string.format('pane %d: session_state=%s (OSC)', pane_id, current.agent_state or 'cleared'))
 end
 
 local function update_pane(pane)
@@ -163,18 +166,20 @@ local function update_pane(pane)
     local raw_proc = pane_process_name(pane)
    local proc = identify_process(raw_proc) or basename(raw_proc)
 
-    if TRACKED_PROCESSES[proc] then
-      if current.state == 'debounce' then
-         log(string.format('pane %d: debounce -> running (false alarm, %s)', pane_id, proc))
-      elseif current.state ~= 'running' then
-         log(string.format('pane %d: %s -> running (%s)', pane_id, current.state, proc))
-      end
-      set_state(pane_id, 'running', proc)
-      if not pane_state[pane_id].agent_state then
-         pane_state[pane_id].agent_state = 'running'
-      end
-      return
-   end
+     if TRACKED_PROCESSES[proc] then
+       if current.state == 'debounce' then
+          log(string.format('pane %d: debounce -> running (false alarm, %s)', pane_id, proc))
+       elseif current.state ~= 'running' then
+          log(string.format('pane %d: %s -> running (%s)', pane_id, current.state, proc))
+       end
+       set_state(pane_id, 'running', proc)
+       -- Don't set agent_state from poller - let OSC signals be authoritative
+       -- Fallback only: if no agent_state yet, assume running for tracked processes
+       if not pane_state[pane_id].agent_state and current.agent_state == nil then
+          pane_state[pane_id].agent_state = 'running'
+       end
+       return
+    end
 
    if SHELL_PROCESSES[proc] then
       if current.state == 'running' then
@@ -183,27 +188,36 @@ local function update_pane(pane)
          return
       end
 
-       if current.state == 'debounce' then
-          log(string.format('pane %d: COMPLETED (%s)', pane_id, current.completed_from or current.process or '?'))
-          set_state(pane_id, 'completed', proc, current.completed_from or current.process)
+        if current.state == 'debounce' then
+           log(string.format('pane %d: COMPLETED (%s)', pane_id, current.completed_from or current.process or '?'))
+           set_state(pane_id, 'completed', proc, current.completed_from or current.process)
+           -- Only clear agent_state if it wasn't set by OSC (avoid fighting signals)
+           if not current.agent_state_from_osc then
+              pane_state[pane_id].agent_state = nil
+           end
+           return
+        end
+
+       if current.state ~= 'idle' then
+          log(string.format('pane %d: %s -> idle (%s)', pane_id, current.state, proc))
+        end
+        set_state(pane_id, 'idle', proc)
+       -- Only clear agent_state if it wasn't set by OSC
+       if not current.agent_state_from_osc then
           pane_state[pane_id].agent_state = nil
-          return
        end
-
-      if current.state ~= 'idle' then
-         log(string.format('pane %d: %s -> idle (%s)', pane_id, current.state, proc))
-       end
-       set_state(pane_id, 'idle', proc)
-       pane_state[pane_id].agent_state = nil
        return
-    end
+     end
 
-   if current.state ~= 'idle' then
-      log(string.format('pane %d: %s -> idle (%s)', pane_id, current.state, proc))
+    if current.state ~= 'idle' then
+       log(string.format('pane %d: %s -> idle (%s)', pane_id, current.state, proc))
+     end
+     set_state(pane_id, 'idle', proc)
+    -- Only clear agent_state if it wasn't set by OSC
+    if not current.agent_state_from_osc then
+       pane_state[pane_id].agent_state = nil
     end
-    set_state(pane_id, 'idle', proc)
-   pane_state[pane_id].agent_state = nil
-end
+ end
 
 local function update_tab_state(tab, panes)
    local tab_id = tab_id_of(tab)
@@ -224,21 +238,22 @@ local function update_tab_state(tab, panes)
    local waiting_count = 0
    local completed_count = 0
 
-   for _, pane in ipairs(panes) do
-      local state = pane_state[pane_id_of(pane)]
-      if state then
-         -- Count running (either agent_state running or tracked state running)
-         if state.agent_state == 'running' or state.state == 'running' then
-            running_count = running_count + 1
-         -- Count waiting (agent_state takes precedence)
-         elseif state.agent_state == 'waiting' then
-            waiting_count = waiting_count + 1
-         -- Count completed (only if not waiting and state is completed)
-         elseif state.state == 'completed' then
-            completed_count = completed_count + 1
-         end
-      end
-   end
+    for _, pane in ipairs(panes) do
+       local state = pane_state[pane_id_of(pane)]
+       if state then
+          -- Prioritize agent_state (from OSC signals) over polled state
+          if state.agent_state == 'waiting' then
+             waiting_count = waiting_count + 1
+          elseif state.agent_state == 'running' then
+             running_count = running_count + 1
+          -- Fallback to polled state when no agent_state
+          elseif state.state == 'running' then
+             running_count = running_count + 1
+          elseif state.state == 'completed' then
+             completed_count = completed_count + 1
+          end
+       end
+    end
 
    if running_count > 0 then
       tab_state[tab_id] = {
