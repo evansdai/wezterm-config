@@ -174,9 +174,9 @@ local function update_pane(pane)
        end
        set_state(pane_id, 'running', proc)
        -- Don't set agent_state from poller - let OSC signals be authoritative
-       -- Fallback only: if no agent_state yet, assume running for tracked processes
+       -- Fallback only: if no agent_state yet, default to waiting
        if not pane_state[pane_id].agent_state and current.agent_state == nil then
-          pane_state[pane_id].agent_state = 'running'
+          pane_state[pane_id].agent_state = 'waiting'
        end
        return
     end
