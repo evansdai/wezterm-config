@@ -124,16 +124,20 @@ local function get_cpu_usage_internal()
             return string.format('%.1f%%', usage)
          end
       end
-   elseif platform.is_win then
-      -- Windows: use wmic
-      local output = run_command({ 'wmic', 'cpu', 'get', 'loadpercentage', '/value' })
-      if output then
-         local cpu = output:match('LoadPercentage=(%d+)')
-         if cpu then
-            return string.format('%s%%', cpu)
-         end
-      end
-   end
+    elseif platform.is_win then
+       -- Windows: use PowerShell (wmic is deprecated)
+       local output = run_command({
+          'powershell.exe',
+          '-Command',
+          'Get-CimInstance Win32_Processor | Select-Object -ExpandProperty LoadPercentage',
+       })
+       if output then
+          local cpu = output:match('(%d+)')
+          if cpu then
+             return string.format('%s%%', cpu)
+          end
+       end
+    end
    return 'N/A'
 end
 
@@ -176,20 +180,23 @@ local function get_memory_usage_internal()
             return string.format('%.1f/%.0fGB', tonumber(used) / 1024, tonumber(total) / 1024)
          end
       end
-   elseif platform.is_win then
-      -- Windows: use wmic
-      local output =
-         run_command({ 'wmic', 'OS', 'get', 'FreePhysicalMemory,TotalVisibleMemorySize', '/value' })
-      if output then
-         local free = output:match('FreePhysicalMemory=(%d+)')
-         local total = output:match('TotalVisibleMemorySize=(%d+)')
-         if free and total then
-            local used = (tonumber(total) - tonumber(free)) / (1024 ^ 2)
-            local total_gb = tonumber(total) / (1024 ^ 2)
-            return string.format('%.1f/%.0fGB', used, total_gb)
-         end
-      end
-   end
+    elseif platform.is_win then
+       -- Windows: use PowerShell (wmic is deprecated)
+       local output = run_command({
+          'powershell.exe',
+          '-Command',
+          'Get-CimInstance Win32_OperatingSystem | ForEach-Object { "FreePhysicalMemory=" + $_.FreePhysicalMemory + ";TotalVisibleMemorySize=" + $_.TotalVisibleMemorySize }',
+       })
+       if output then
+          local free = output:match('FreePhysicalMemory=(%d+)')
+          local total = output:match('TotalVisibleMemorySize=(%d+)')
+          if free and total then
+             local used = (tonumber(total) - tonumber(free)) / (1024 ^ 2)
+             local total_gb = tonumber(total) / (1024 ^ 2)
+             return string.format('%.1f/%.0fGB', used, total_gb)
+          end
+       end
+    end
    return 'N/A'
 end
 
@@ -258,39 +265,42 @@ local function get_swap_usage_internal()
             }
          end
       end
-   elseif platform.is_win then
-      -- Windows: use wmic for page file
-      local output =
-         run_command({ 'wmic', 'pagefile', 'get', 'AllocatedBaseSize,CurrentUsage', '/value' })
-      if output then
-         local total = output:match('AllocatedBaseSize=(%d+)')
-         local used = output:match('CurrentUsage=(%d+)')
-         if total and used then
-            local total_mb = tonumber(total)
-            local used_mb = tonumber(used)
+    elseif platform.is_win then
+       -- Windows: use PowerShell (wmic is deprecated)
+       local output = run_command({
+          'powershell.exe',
+          '-Command',
+          'Get-CimInstance Win32_PageFileUsage | ForEach-Object { "AllocatedBaseSize=" + $_.AllocatedBaseSize + ";CurrentUsage=" + $_.CurrentUsage }',
+       })
+       if output then
+          local total = output:match('AllocatedBaseSize=(%d+)')
+          local used = output:match('CurrentUsage=(%d+)')
+          if total and used then
+             local total_mb = tonumber(total)
+             local used_mb = tonumber(used)
 
-            if total_mb <= 0 then
-               return nil
-            end
+             if total_mb <= 0 then
+                return nil
+             end
 
-            local percent = (used_mb / total_mb) * 100
-            local used_gb = used_mb / 1024
+             local percent = (used_mb / total_mb) * 100
+             local used_gb = used_mb / 1024
 
-            local status = 'normal'
-            if percent >= 80 then
-               status = 'critical'
-            elseif percent >= 50 then
-               status = 'warning'
-            end
+             local status = 'normal'
+             if percent >= 80 then
+                status = 'critical'
+             elseif percent >= 50 then
+                status = 'warning'
+             end
 
-            return {
-               percent = percent,
-               text = string.format('%.2fG %.1f%%', used_gb, percent),
-               status = status,
-            }
-         end
-      end
-   end
+             return {
+                percent = percent,
+                text = string.format('%.2fG %.1f%%', used_gb, percent),
+                status = status,
+             }
+          end
+       end
+    end
    return nil
 end
 
