@@ -15,6 +15,12 @@ local SHELL_PROCESSES = {
    zsh = true,
    bash = true,
    fish = true,
+   pwsh = true,
+   ['pwsh-preview'] = true,
+   powershell = true,
+   cmd = true,
+   nu = true,
+   wsl = true,
 }
 
 local pane_state = {}
@@ -37,6 +43,17 @@ local function identify_process(proc)
 
    if raw:find('claude%-code') or raw:find('claude/versions/', 1, true) or raw:find('/claude/', 1, true) then
       return 'claude'
+   end
+
+   if raw:find('opencode-windows-', 1, true)
+      or raw:find('opencode-linux-', 1, true)
+      or raw:find('opencode-darwin-', 1, true)
+      or raw:find('.opencode/bin/opencode', 1, true)
+      or raw:find('.opencode/bin/opencode', 1, true)
+      or raw:match('[/\\]bin[/\\]opencode%.exe?$')
+      or raw:match('[/\\]opencode%.exe?$')
+   then
+      return 'opencode'
    end
 
    return nil
@@ -115,6 +132,50 @@ local function log(msg)
    wezterm.log_info('[Tracker] ' .. msg)
 end
 
+local function tab_state_equals(left, right)
+   if left == nil or right == nil then
+      return left == right
+   end
+
+   return left.state == right.state
+      and (left.running or 0) == (right.running or 0)
+      and (left.waiting or 0) == (right.waiting or 0)
+end
+
+local function set_tab_state(tab_id, next_state)
+   if tab_state_equals(tab_state[tab_id], next_state) then
+      return false
+   end
+
+   tab_state[tab_id] = next_state
+   return true
+end
+
+local function refresh_tab_bar(window)
+   if not window or type(window.get_config_overrides) ~= 'function' or type(window.set_config_overrides) ~= 'function' then
+      return
+   end
+
+   local ok, overrides = pcall(function() return window:get_config_overrides() end)
+   if not ok then
+      return
+   end
+
+   pcall(function()
+      window:set_config_overrides(overrides or {})
+   end)
+end
+
+local function clear_agent_state(pane_id)
+   local current = pane_state[pane_id]
+   if not current then
+      return
+   end
+
+   current.agent_state = nil
+   current.agent_state_from_osc = false
+end
+
 local function is_tracked_process(proc)
    return identify_process(proc) ~= nil
 end
@@ -126,6 +187,8 @@ local function set_state(pane_id, state, process, completed_from)
       process = process or '',
       completed_from = completed_from,
       agent_state = current.agent_state,
+      agent_state_from_osc = current.agent_state_from_osc,
+      shell_polls = current.shell_polls or 0,
    }
 end
 
@@ -138,13 +201,13 @@ local function set_agent_state(pane, value)
    local current = get_state(pane_id)
    local normalized = string.lower(value or '')
 
-   if normalized == 'waiting' or normalized == 'idle' or normalized == 'needs_input' or normalized == 'completed' then
+   if normalized == 'waiting' or normalized == 'idle' or normalized == 'needs_input' then
       current.agent_state = 'waiting'
       current.agent_state_from_osc = true
    elseif normalized == 'running' or normalized == 'busy' or normalized == 'working' then
       current.agent_state = 'running'
       current.agent_state_from_osc = true
-   elseif normalized == '' or normalized == 'clear' then
+   elseif normalized == '' or normalized == 'clear' or normalized == 'completed' then
       current.agent_state = nil
       current.agent_state_from_osc = false
    else
@@ -163,80 +226,100 @@ local function update_pane(pane)
    end
 
    local current = get_state(pane_id)
-    local raw_proc = pane_process_name(pane)
+   local raw_proc = pane_process_name(pane)
    local proc = identify_process(raw_proc) or basename(raw_proc)
 
-     if TRACKED_PROCESSES[proc] then
-       if current.state == 'debounce' then
-          log(string.format('pane %d: debounce -> running (false alarm, %s)', pane_id, proc))
-       elseif current.state ~= 'running' then
-          log(string.format('pane %d: %s -> running (%s)', pane_id, current.state, proc))
-       end
-       set_state(pane_id, 'running', proc)
-       -- Don't set agent_state from poller - let OSC signals be authoritative
-       -- Fallback only: if no agent_state yet, default to waiting
-       if not pane_state[pane_id].agent_state and current.agent_state == nil then
-          pane_state[pane_id].agent_state = 'waiting'
-       end
-       return
-    end
+   -- Case 1: Tracked process is the foreground process -> running
+   if TRACKED_PROCESSES[proc] then
+      if current.state == 'debounce' then
+         log(string.format('pane %d: debounce -> running (false alarm, %s)', pane_id, proc))
+      elseif current.state ~= 'running' then
+         log(string.format('pane %d: %s -> running (%s)', pane_id, current.state, proc))
+      end
+      set_state(pane_id, 'running', proc)
+      pane_state[pane_id].shell_polls = 0
+      -- Do NOT default agent_state; let OSC signals or update_tab_state fallback handle it
+      return
+   end
 
+   -- Case 2: Shell process
    if SHELL_PROCESSES[proc] then
       if current.state == 'running' then
-         log(string.format('pane %d: running -> debounce (%s)', pane_id, proc))
-         set_state(pane_id, 'debounce', proc, current.process)
-         return
+          -- Agent just backgrounded to shell -> start debounce
+          log(string.format('pane %d: running -> debounce (%s)', pane_id, proc))
+          set_state(pane_id, 'debounce', proc, current.process)
+          pane_state[pane_id].shell_polls = 1
+          return
       end
 
-        if current.state == 'debounce' then
-           log(string.format('pane %d: COMPLETED (%s)', pane_id, current.completed_from or current.process or '?'))
-           set_state(pane_id, 'completed', proc, current.completed_from or current.process)
-           -- Only clear agent_state if it wasn't set by OSC (avoid fighting signals)
-           if not current.agent_state_from_osc then
-              pane_state[pane_id].agent_state = nil
-           end
-           return
-        end
+      if current.state == 'debounce' then
+          -- Second consecutive poll at shell -> agent has truly exited
+          log(string.format('pane %d: COMPLETED (%s)', pane_id, current.completed_from or current.process or '?'))
+          set_state(pane_id, 'completed', proc, current.completed_from or current.process)
+          -- Always clear agent_state on completion (session is over)
+          clear_agent_state(pane_id)
+          pane_state[pane_id].shell_polls = 0
+          return
+      end
 
-       if current.state ~= 'idle' then
-          log(string.format('pane %d: %s -> idle (%s)', pane_id, current.state, proc))
-        end
-        set_state(pane_id, 'idle', proc)
-       -- Only clear agent_state if it wasn't set by OSC
-       if not current.agent_state_from_osc then
-          pane_state[pane_id].agent_state = nil
-       end
-       return
-     end
+      if current.state ~= 'idle' then
+         log(string.format('pane %d: %s -> idle (%s)', pane_id, current.state, proc))
+      end
+      set_state(pane_id, 'idle', proc)
+      local shell_polls = (current.state == 'idle' and current.shell_polls or 0) + 1
+      pane_state[pane_id].shell_polls = shell_polls
+      -- Only clear agent_state if it wasn't set by OSC
+      if not current.agent_state_from_osc then
+         pane_state[pane_id].agent_state = nil
+      elseif shell_polls >= 2 then
+         log(string.format('pane %d: clearing stale OSC session state at shell (%s)', pane_id, proc))
+         clear_agent_state(pane_id)
+      end
+      return
+   end
 
-    if current.state ~= 'idle' then
-       log(string.format('pane %d: %s -> idle (%s)', pane_id, current.state, proc))
-     end
-     set_state(pane_id, 'idle', proc)
-    -- Only clear agent_state if it wasn't set by OSC
-    if not current.agent_state_from_osc then
-       pane_state[pane_id].agent_state = nil
-    end
- end
+   -- Case 3: Non-tracked, non-shell process
+   if current.state == 'running' or current.state == 'debounce' then
+      -- Agent subprocess (node, go, etc.) - stay in debounce (sticky)
+      if current.state == 'running' then
+         log(string.format('pane %d: running -> debounce (subprocess %s)', pane_id, proc))
+         set_state(pane_id, 'debounce', proc, current.process)
+         pane_state[pane_id].shell_polls = 0
+      else
+          -- Already in debounce, stay there (subprocess still running)
+          log(string.format('pane %d: debounce (subprocess %s, staying)', pane_id, proc))
+         pane_state[pane_id].shell_polls = 0
+      end
+      return
+   end
+
+   if current.state ~= 'idle' then
+      log(string.format('pane %d: %s -> idle (%s)', pane_id, current.state, proc))
+   end
+   set_state(pane_id, 'idle', proc)
+   pane_state[pane_id].shell_polls = 0
+   -- Only clear agent_state if it wasn't set by OSC
+   if not current.agent_state_from_osc then
+      pane_state[pane_id].agent_state = nil
+   end
+end
 
 local function update_tab_state(tab, panes)
    local tab_id = tab_id_of(tab)
    if not tab_id then
-      return
+      return false
    end
 
    if not panes then
       local ok, resolved_panes = pcall(function() return tab:panes() end)
       if not ok or not resolved_panes then
-         tab_state[tab_id] = nil
-         return
+         return set_tab_state(tab_id, nil)
       end
       panes = resolved_panes
    end
 
    local running_count = 0
    local waiting_count = 0
-   local completed_count = 0
 
     for _, pane in ipairs(panes) do
        local state = pane_state[pane_id_of(pane)]
@@ -247,44 +330,33 @@ local function update_tab_state(tab, panes)
           elseif state.agent_state == 'running' then
              running_count = running_count + 1
           -- Fallback to polled state when no agent_state
-          elseif state.state == 'running' then
+          elseif state.state == 'running' or state.state == 'debounce' then
              running_count = running_count + 1
-          elseif state.state == 'completed' then
-             completed_count = completed_count + 1
           end
        end
     end
 
    if running_count > 0 then
-      tab_state[tab_id] = {
+      return set_tab_state(tab_id, {
          state = 'running',
          running = running_count,
          waiting = waiting_count,
-         completed = completed_count,
-      }
+      })
    elseif waiting_count > 0 then
-      tab_state[tab_id] = {
+      return set_tab_state(tab_id, {
          state = 'waiting',
          running = 0,
          waiting = waiting_count,
-         completed = completed_count,
-      }
-   elseif completed_count > 0 then
-      tab_state[tab_id] = {
-         state = 'completed',
-         running = 0,
-         waiting = 0,
-         completed = completed_count,
-      }
+      })
    else
-      tab_state[tab_id] = nil
+      return set_tab_state(tab_id, nil)
    end
 end
 
 local function tab_has_running(tab)
    for _, pane in ipairs(tab.panes or {}) do
       local state = pane_state[pane_id_of(pane)]
-      if state and state.state == 'running' then
+      if state and (state.state == 'running' or state.state == 'debounce') then
          return true
       end
    end
@@ -334,6 +406,7 @@ local function poll_all_panes(window)
    end
 
    local live_tab_ids = {}
+   local tab_state_changed = false
 
    for _, tab in ipairs(tabs) do
       local tab_id = tab_id_of(tab)
@@ -346,9 +419,13 @@ local function poll_all_panes(window)
          for _, pane in ipairs(panes) do
             update_pane(pane)
          end
-         update_tab_state(tab, panes)
+         if update_tab_state(tab, panes) then
+            tab_state_changed = true
+         end
       elseif tab_id then
-         tab_state[tab_id] = nil
+         if set_tab_state(tab_id, nil) then
+            tab_state_changed = true
+         end
       end
    end
 
@@ -356,18 +433,26 @@ local function poll_all_panes(window)
    for tab_id in pairs(tab_state) do
       if not live_tab_ids[tab_id] then
          tab_state[tab_id] = nil
+         tab_state_changed = true
       end
+   end
+
+   if tab_state_changed then
+      refresh_tab_bar(window)
    end
 end
 
 wezterm.on('update-status', poll_all_panes)
-wezterm.on('user-var-changed', function(_window, pane, name, value)
+wezterm.on('user-var-changed', function(window, pane, name, value)
    if name == 'session_state' or name == 'agent_state' then
       set_agent_state(pane, value)
 
       local ok, tab = pcall(function() return pane:tab() end)
       if ok and tab then
-         update_tab_state(tab)
+         local changed = update_tab_state(tab)
+         if changed and window then
+            refresh_tab_bar(window)
+         end
       end
    end
 end)
@@ -377,8 +462,8 @@ local M = {}
 ---Get tab session state with counts
 ---Returns state string and counts table, or nil if no tracked sessions
 ---@param tab_or_tab_id table|number
----@return string|nil state 'running', 'waiting', or 'completed'
----@return table|nil counts {running: number, waiting: number, completed: number}
+---@return string|nil state 'running' or 'waiting'
+---@return table|nil counts {running: number, waiting: number}
 function M.get_tab_session_state(tab_or_tab_id)
    local tab_id = tab_or_tab_id
    if type(tab_or_tab_id) == 'table' then
@@ -393,7 +478,6 @@ function M.get_tab_session_state(tab_or_tab_id)
    return state.state, {
       running = state.running or 0,
       waiting = state.waiting or 0,
-      completed = state.completed or 0,
    }
 end
 

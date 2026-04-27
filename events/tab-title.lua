@@ -263,10 +263,10 @@ function Tab:set_info(event_opts, tab, max_width)
       -- Base 2 chars for icon, plus space
       inset = inset + 2
       -- Add extra space for count display (e.g., "▶2/3" could be up to 5 chars)
-      if self.session_counts then
+       if self.session_counts then
          local total_active = self.session_counts.running + self.session_counts.waiting
-         if total_active > 1 or self.session_counts.completed > 0 then
-            -- Account for numbers like "2/3" or "3"
+         if total_active > 1 then
+            -- Account for numbers like "3"
             inset = inset + 3
          end
       end
@@ -323,15 +323,10 @@ function Tab:update_cells(event_opts, is_active, hover)
    if self.session_state then
       local glyph = self.session_state == 'running' and GLYPH_SESSION_RUNNING or GLYPH_SESSION_WAITING
       local counts = self.session_counts
-      if counts then
+       if counts then
          local total_active = counts.running + counts.waiting
-         if total_active > 1 or counts.completed > 0 then
-            -- Show counts: active/completed or just active count if multiple
-            if counts.completed > 0 then
-               session_text = string.format(' %s%d/%d', glyph, total_active, counts.completed)
-            else
-               session_text = string.format(' %s%d', glyph, total_active)
-            end
+         if total_active > 1 then
+            session_text = string.format(' %s%d', glyph, total_active)
          else
             session_text = ' ' .. glyph
          end
