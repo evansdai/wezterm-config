@@ -1,8 +1,7 @@
 return {
    -- behaviours
    automatically_reload_config = true,
-   exit_behavior = 'CloseOnCleanExit', -- if the shell program exited with a successful status
-   exit_behavior_messaging = 'Verbose',
+   exit_behavior = 'Close', -- close pane regardless of exit code (mitigates upstream bug #7520 where OpenConsole.exe crashes on alt-screen exit, killing pwsh with code 0x80131623)
    status_update_interval = 1000,
    audible_bell = 'Disabled',
 
